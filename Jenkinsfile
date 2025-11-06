@@ -2,9 +2,10 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'ap-south-1'
-        ECR_REPO_NAME = 'cia-app'
-        IMAGE_TAG = "latest"
+        AWS_REGION = 'ap-south-2'
+        ECR_REPO = '467944391264.dkr.ecr.ap-south-2.amazonaws.com/yamini-cicd-repo'
+        DOCKER_IMAGE = 'cia-app'
+        PATH = "/opt/homebrew/bin:$PATH"
     }
 
     stages {
@@ -28,7 +29,7 @@ pipeline {
             steps {
                 echo 'Running tests...'
                 dir('app') {
-                    sh 'npm test || echo "No tests configured"'
+                    sh 'npm test'
                 }
             }
         }
@@ -36,7 +37,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 echo 'Building Docker image...'
-                sh 'docker build -t $ECR_REPO_NAME ./app'
+                sh 'docker build -t ${DOCKER_IMAGE} ./app'
             }
         }
 
@@ -44,32 +45,35 @@ pipeline {
             steps {
                 echo 'Logging in to AWS ECR...'
                 sh '''
-                aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin <your-account-id>.dkr.ecr.$AWS_REGION.amazonaws.com
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                    docker login --username AWS --password-stdin ${ECR_REPO}
                 '''
             }
         }
 
-        stage('Push Docker Image') {
+        stage('Tag and Push Docker Image') {
             steps {
-                echo 'Pushing Docker image to ECR...'
+                echo 'Tagging and pushing Docker image to ECR...'
                 sh '''
-                docker tag $ECR_REPO_NAME:latest <your-account-id>.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG
-                docker push <your-account-id>.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG
+                    docker tag ${DOCKER_IMAGE}:latest ${ECR_REPO}:latest
+                    docker push ${ECR_REPO}:latest
                 '''
             }
         }
 
         stage('Deploy to EC2') {
             steps {
-                echo 'Deploying to EC2...'
-                sh 'echo "Deployment step here (e.g., SSH into EC2 and pull image)"'
+                echo 'Deploying Docker image to EC2...'
+                // Replace with your EC2 SSH command once ready
+                // Example:
+                // sh 'ssh -i /path/to/key.pem ec2-user@your-ec2-ip "docker pull ${ECR_REPO}:latest && docker run -d -p 80:3000 ${ECR_REPO}:latest"'
             }
         }
     }
 
     post {
         success {
-            echo '✅ Build completed successfully!'
+            echo '✅ Deployment successful!'
         }
         failure {
             echo '❌ Build failed. Please check the logs.'
