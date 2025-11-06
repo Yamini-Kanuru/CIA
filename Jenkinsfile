@@ -2,74 +2,70 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'ap-south-2'
-        ECR_REPO = '467944391264.dkr.ecr.ap-south-2.amazonaws.com/yamini-cicd-repo'
-        DOCKER_IMAGE = 'cia-app'
-        PATH = "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin"
+        AWS_REGION = "ap-south-2"
+        ECR_REPO = "467944391264.dkr.ecr.ap-south-2.amazonaws.com/yamini-cicd-repo"
+        IMAGE_NAME = "yamini-cicd-app"
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Checkout Code') {
             steps {
-                echo 'Fetching code from GitHub...'
                 git branch: 'main', url: 'https://github.com/Yamini-Kanuru/CIA.git'
             }
         }
 
-        stage('Build') {
+        stage('Install Dependencies') {
             steps {
-                echo 'Building the Node.js application...'
                 dir('app') {
                     sh 'npm install'
                 }
             }
         }
 
-        stage('Test') {
-            steps {
-                echo 'Running tests...'
-                dir('app') {
-                    sh 'npm test || echo "No tests found, skipping..."'
-                }
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
-                echo 'Building Docker image...'
-                sh '''
-                    docker build -t ${DOCKER_IMAGE}:latest ./app
-                '''
+                dir('app') {
+                    sh '''
+                    docker build -t $IMAGE_NAME .
+                    docker tag $IMAGE_NAME:latest $ECR_REPO:latest
+                    '''
+                }
             }
         }
 
         stage('Login to AWS ECR') {
             steps {
-                echo 'Logging in to AWS ECR...'
-                sh '''
-                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
-                '''
+                withCredentials([usernamePassword(credentialsId: 'aws-credentials',
+                                                 usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh '''
+                    aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+                    aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+                    aws configure set default.region $AWS_REGION
+
+                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+                    '''
+                }
             }
         }
 
-        stage('Tag and Push Docker Image') {
+        stage('Push Docker Image to ECR') {
             steps {
-                echo 'Tagging and pushing Docker image to ECR...'
-                sh '''
-                    docker tag ${DOCKER_IMAGE}:latest ${ECR_REPO}:${BUILD_NUMBER}
-                    docker push ${ECR_REPO}:${BUILD_NUMBER}
-                '''
+                dir('app') {
+                    sh '''
+                    docker push $ECR_REPO:latest
+                    '''
+                }
             }
         }
 
-        stage('Deploy to EC2') {
+        stage('Deploy on EC2') {
             steps {
-                echo 'Deploying container on EC2...'
                 sh '''
-                    echo "Pulling image on EC2 and restarting container..."
-                    # Example: Replace with your EC2 SSH deploy command
-                    # ssh -o StrictHostKeyChecking=no ec2-user@<EC2-IP> \
-                    # "docker pull ${ECR_REPO}:${BUILD_NUMBER} && docker run -d -p 3000:3000 ${ECR_REPO}:${BUILD_NUMBER}"
+                echo "Deploying to EC2 instance..."
+                # Example deployment command
+                # ssh -o StrictHostKeyChecking=no ec2-user@<EC2_PUBLIC_IP> "docker pull $ECR_REPO:latest && docker run -d -p 3000:3000 $ECR_REPO:latest"
                 '''
             }
         }
@@ -77,10 +73,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Build and deployment completed successfully!"
+            echo "✅ Deployment successful!"
         }
         failure {
-            echo "❌ Build failed. Please check the logs."
+            echo "❌ Build or deployment failed!"
         }
     }
 }
